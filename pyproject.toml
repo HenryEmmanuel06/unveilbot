@@ -1,0 +1,12 @@
+[project]
+name = "pocket-option-signal-bot"
+version = "1.0.0"
+description = "W/M pullback strategy market-analysis and Telegram signal bot (no trade execution)"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.setuptools]
+packages = ["config", "src"]
