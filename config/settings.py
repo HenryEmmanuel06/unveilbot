@@ -71,6 +71,10 @@ class Settings:
     notify_invalidations: bool
     #: When True the bot places real orders on the PO_SSID account.
     take_trade: bool
+    #: Telegram signal phase switches.
+    notify_phase1: bool
+    notify_phase2: bool
+    notify_phase3: bool
     #: Stake per trade as a percentage of the currently available balance.
     trade_percentage: float
     #: Broker minimum stake. A trade sized below this is skipped, not rounded up.
@@ -150,6 +154,9 @@ def load_settings() -> Settings:
         display_timezone=_env("DISPLAY_TIMEZONE", default="UTC"),
         notify_invalidations=_env_bool("NOTIFY_INVALIDATIONS", False),
         take_trade=_env_bool("TAKE_TRADE", False),
+        notify_phase1=_env_bool("PHASE_1_SIGNAL", True),
+        notify_phase2=_env_bool("PHASE_2_SIGNAL", True),
+        notify_phase3=_env_bool("PHASE_3_SIGNAL", True),
         trade_percentage=_env_float("TRADE_PERCENTAGE", 5.0),
         min_trade_amount=_env_float("MIN_TRADE_AMOUNT", 1.0),
         database_path=database_path,

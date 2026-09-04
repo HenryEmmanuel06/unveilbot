@@ -63,6 +63,9 @@ class SignalBot:
             bot=build_bot(settings),
             display_timezone=settings.display_timezone,
             notify_invalidations=settings.notify_invalidations,
+            notify_phase1=settings.notify_phase1,
+            notify_phase2=settings.notify_phase2,
+            notify_phase3=settings.notify_phase3,
             enabled=settings.app_mode in ("PAPER", "LIVE_SIGNAL"),
         )
         self.risk: RiskManager | None = None

@@ -66,6 +66,7 @@ def test_pullback_message_contains_status_and_expiration():
     assert "TO REACH ENTRY CONFIRMATION" in text
     assert "10 Minutes" in text
     assert "Red Candle #2" in text
+    assert "P Price: 1.16500" in text
 
 
 def test_execution_message_contains_direction_and_disclaimer():
@@ -107,6 +108,54 @@ def test_channel_chat_id_is_normalized():
     assert normalize_chat_id("-1004313011768") == "-1004313011768"
     assert normalize_chat_id("123456789") == "123456789"
     assert normalize_chat_id("@mychannel") == "@mychannel"
+
+
+def test_phase1_disabled_others_still_send():
+    bot = FakeBot()
+    notifier = Notifier(bot, display_timezone="UTC", notify_phase1=False)
+    setup = make_setup()
+    assert not notifier.send_pattern_signal(setup, NOW)
+    assert notifier.send_pullback_signal(setup, NOW)
+    assert notifier.send_execution_signal(setup, NOW)
+    assert len(bot.sent) == 2
+
+
+def test_phase2_disabled_but_phase1_and_phase3_still_send():
+    bot = FakeBot()
+    notifier = Notifier(bot, display_timezone="UTC", notify_phase2=False)
+    setup = make_setup()
+    assert notifier.send_pattern_signal(setup, NOW)
+    assert not notifier.send_pullback_signal(setup, NOW)
+    assert notifier.send_execution_signal(setup, NOW)
+    assert len(bot.sent) == 2
+
+
+def test_phase3_disabled_but_phase1_and_phase2_still_send():
+    bot = FakeBot()
+    notifier = Notifier(bot, display_timezone="UTC", notify_phase3=False)
+    setup = make_setup()
+    assert notifier.send_pattern_signal(setup, NOW)
+    assert notifier.send_pullback_signal(setup, NOW)
+    assert not notifier.send_execution_signal(setup, NOW)
+    assert len(bot.sent) == 2
+
+
+def test_phase1_is_duplicate_prevented_across_enabled_toggles():
+    bot = FakeBot()
+    notifier = Notifier(bot, display_timezone="UTC", notify_phase1=False)
+    setup = make_setup()
+    assert not notifier.send_pattern_signal(setup, NOW)
+    assert not notifier.send_pattern_signal(setup, NOW)
+    assert bot.sent == []
+
+
+def test_m_pullback_message_contains_t_price():
+    setup = make_setup()
+    setup.pattern = Pattern.M
+    text = format_pullback_signal(setup, NOW)
+    assert "M PULLBACK FORMED" in text
+    assert "T Price:" in text
+    assert "T Breakout: ✓" in text
 
 
 def test_signal_kind_values_cover_three_phases():

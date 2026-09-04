@@ -76,6 +76,7 @@ def format_pullback_signal(setup: Setup, timestamp: datetime, tz: str = "UTC") -
     is_w = setup.pattern is Pattern.W
     header = "🟡 W PULLBACK FORMED" if is_w else "🟡 M PULLBACK FORMED"
     breakout = "P Breakout" if is_w else "T Breakout"
+    pt_label = "P" if is_w else "T"
     dot = "🔴" if is_w else "🟢"
     colour = "Red" if is_w else "Green"
     candles = "\n".join(
@@ -92,6 +93,7 @@ def format_pullback_signal(setup: Setup, timestamp: datetime, tz: str = "UTC") -
         f"Direction: {setup.direction.value}\n\n"
         f"{setup.pattern.value} Confirmed ✓\n"
         f"{breakout}: ✓\n\n"
+        f"{pt_label} Price: {format_price(setup.asset, setup.level_mid)}\n\n"
         f"Pullback:\n{candles}\n\n"
         "Maximum: 3 candles\n\n"
         f"Status:\n{waiting}\n\n"
