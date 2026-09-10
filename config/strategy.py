@@ -4,6 +4,10 @@ Every numeric parameter is a placeholder that must be optimized through
 backtesting. Nothing here is a proven value.
 """
 
+from config.settings import settings as _settings
+from src.utils.time import parse_expiration
+
+
 STRATEGY_CONFIG: dict = {
     # --- W/M structure -------------------------------------------------
     "minimum_retracement": 0.50,
@@ -36,6 +40,12 @@ STRATEGY_CONFIG: dict = {
     # How much of the #1 pullback candle the first opposite candle must
     # retrace to trigger the trade. 1.0 = full high/low break; 0.5 = 50%.
     "entry_confirmation_threshold": 0.5,
+    # Fire PHASE 3 the moment price touches the entry level inside the
+    # confirmation candle instead of waiting for that candle to close. The
+    # trade is only sent when the higher-timeframe flat-candle check and the
+    # bias filter pass at that same moment. Set to False to go back to
+    # closed-candle execution.
+    "intrabar_execution": True,
     "minimum_pullback_candles": 2,
     "maximum_pullback_candles": 3,
     # Doji candles are neither green nor red. When False a doji does not
@@ -83,19 +93,47 @@ STRATEGY_CONFIG: dict = {
     "max_missing_candles": 2,
 }
 
-TIMEFRAME_CONFIG: dict = {
-    "15s": {"seconds": 15, "expiration": "1m", "higher_timeframes": ["1m", "5m"]},
-    "30s": {"seconds": 30, "expiration": "1m", "higher_timeframes": ["1m", "5m"]},
-    "1m": {"seconds": 60, "expiration": "3m", "higher_timeframes": ["5m"]},
-    "5m": {"seconds": 300, "expiration": "10m", "higher_timeframes": []},
-    "15m": {"seconds": 900, "expiration": "30m", "higher_timeframes": []},
+def _exp_for(timeframe: str) -> str:
+    return str(_settings.expirations.get(timeframe, _TIMEFRAME_DEFAULTS[timeframe]))
+
+
+_TIMEFRAME_DEFAULTS: dict[str, str] = {
+    "15s": "1m",
+    "30s": "1m",
+    "1m": "3m",
+    "5m": "10m",
+    "15m": "30m",
 }
 
+TIMEFRAME_CONFIG: dict = {
+    "15s": {"seconds": 15, "expiration": _exp_for("15s"), "higher_timeframes": ["1m", "5m"]},
+    "30s": {"seconds": 30, "expiration": _exp_for("30s"), "higher_timeframes": ["1m", "5m"]},
+    "1m": {"seconds": 60, "expiration": _exp_for("1m"), "higher_timeframes": ["5m"]},
+    "5m": {"seconds": 300, "expiration": _exp_for("5m"), "higher_timeframes": []},
+    "15m": {"seconds": 900, "expiration": _exp_for("15m"), "higher_timeframes": []},
+}
+
+
+def _human_label(expiration: str) -> str:
+    try:
+        delta = parse_expiration(expiration)
+    except ValueError:
+        return expiration
+    seconds = int(delta.total_seconds())
+    if seconds >= 3600 and seconds % 3600 == 0:
+        n = seconds // 3600
+        return f"{n} Hour{'s' if n != 1 else ''}"
+    if seconds >= 60 and seconds % 60 == 0:
+        n = seconds // 60
+        return f"{n} Minute{'s' if n != 1 else ''}"
+    return f"{seconds} Second{'s' if seconds != 1 else ''}"
+
+
 EXPIRATION_LABELS: dict = {
-    "1m": "1 Minute",
-    "3m": "3 Minutes",
-    "10m": "10 Minutes",
-    "30m": "30 Minutes",
+    "1m": _human_label("1m"),
+    "3m": _human_label("3m"),
+    "10m": _human_label("10m"),
+    "30m": _human_label("30m"),
 }
 
 
@@ -108,8 +146,7 @@ def expiration_for(timeframe: str) -> str:
 
 
 def expiration_label(timeframe: str) -> str:
-    exp = expiration_for(timeframe)
-    return EXPIRATION_LABELS.get(exp, exp)
+    return _human_label(expiration_for(timeframe))
 
 
 def higher_timeframes(timeframe: str) -> list[str]:

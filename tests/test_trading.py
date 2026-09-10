@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from config.strategy import TIMEFRAME_CONFIG
 from src.data.pocket_option import ORDER_ACTION_CALL, ORDER_ACTION_PUT, OrderResult
 from src.signals.models import Direction, Pattern, Setup, SetupStatus, build_setup_id
 from src.trading.executor import TradeExecutor, expiry_seconds, order_action
@@ -129,12 +130,39 @@ def test_invalid_percentage_is_rejected(percentage):
 
 
 # -------------------------------------------------------------- expirations
+@pytest.fixture
+def default_expirations(monkeypatch):
+    """Pin the ladder so the local .env cannot change these assertions."""
+    for timeframe, expiration in (("15s", "1m"), ("30s", "1m"), ("1m", "3m"), ("5m", "10m")):
+        monkeypatch.setitem(
+            TIMEFRAME_CONFIG[timeframe], "expiration", expiration
+        )
+
+
 @pytest.mark.parametrize(
     "timeframe,seconds",
     [("15s", 60), ("30s", 60), ("1m", 180), ("5m", 600)],
 )
-def test_expiry_matches_the_timeframe_configuration(timeframe, seconds):
+def test_expiry_matches_the_timeframe_configuration(default_expirations, timeframe, seconds):
     assert expiry_seconds(timeframe) == seconds
+
+
+def test_expiry_follows_the_configured_expiration(monkeypatch):
+    monkeypatch.setitem(TIMEFRAME_CONFIG["5m"], "expiration", "7m")
+    assert expiry_seconds("5m") == 420
+
+
+def test_expiration_env_vars_override_defaults(monkeypatch):
+    monkeypatch.setenv("5M_EXPIRATION", "5m")
+    monkeypatch.setenv("15S_EXPIRATION", "45s")
+    monkeypatch.setenv("1M_EXPIRATION", "2m")
+
+    from config.settings import load_settings
+
+    settings = load_settings()
+    assert settings.expirations["5m"] == "5m"
+    assert settings.expirations["15s"] == "45s"
+    assert settings.expirations["1m"] == "2m"
 
 
 def test_direction_maps_to_broker_action():
@@ -144,7 +172,7 @@ def test_direction_maps_to_broker_action():
 
 # ----------------------------------------------------------------- executor
 @pytest.mark.asyncio
-async def test_executor_places_a_sized_order():
+async def test_executor_places_a_sized_order(default_expirations):
     risk = RiskManager(trade_percentage=5.0)
     risk.update_balance(1000.0)
     provider = FakeProvider()
@@ -168,7 +196,7 @@ async def test_executor_places_a_sized_order():
 
 
 @pytest.mark.asyncio
-async def test_m_pattern_sends_a_put_order():
+async def test_m_pattern_sends_a_put_order(default_expirations):
     risk = RiskManager(trade_percentage=5.0)
     risk.update_balance(1000.0)
     provider = FakeProvider()

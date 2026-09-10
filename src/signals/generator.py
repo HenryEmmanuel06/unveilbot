@@ -56,14 +56,16 @@ class SignalEngine:
         return self.history.get((asset, timeframe), [])
 
     def set_partial_source(self, partial_source) -> None:
-        """Enable the flat-candle guard using in-progress candles.
+        """Enable the flat-candle guard and the intrabar entry trigger.
 
         `partial_source(asset, timeframe) -> Candle | None`. Without this the
-        guard stays off, because the check is meaningless on closed candles.
+        guard stays off, because the check is meaningless on closed candles,
+        and execution falls back to the close of the confirmation candle.
         """
         guard = FlatCandleGuard(self._candles, partial_source)
         for machine in self.machines.values():
             machine.flat_guard = guard
+            machine.partial_source = partial_source
 
     def _store(self, candle: Candle) -> bool:
         key = (candle.asset, candle.timeframe)
@@ -119,6 +121,20 @@ class SignalEngine:
         if machine is None:
             return []
         return machine.on_closed_candle(candle)
+
+    def on_tick(self, tick) -> list[SignalEvent]:
+        """Poll the entry level of every live setup on this asset.
+
+        Called after the tick has been folded into the candle builders, so the
+        forming candle each machine reads already includes this price.
+        """
+        events: list[SignalEvent] = []
+        for tf in self.analysis_timeframes:
+            machine = self.machines.get((tick.asset, tf))
+            if machine is None or machine.active is None:
+                continue
+            events.extend(machine.on_tick(tick.price, tick.timestamp))
+        return events
 
     def active_setups(self) -> list:
         return [m.active for m in self.machines.values() if m.active is not None]

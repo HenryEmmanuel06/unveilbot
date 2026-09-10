@@ -200,6 +200,9 @@ class SignalBot:
             self._ticks += 1
             for candle in self.builders.add_tick(tick):
                 self._process_candle(candle)
+            # The entry level is polled on every tick so a confirmed setup is
+            # traded the instant price reaches it, not one candle later.
+            self._dispatch(self.engine.on_tick(tick))
 
     def _process_candle(self, candle) -> None:
         unreliable = self.builders.is_unreliable(candle.asset, candle.timeframe)
@@ -208,12 +211,16 @@ class SignalBot:
         self._candles += 1
         events = self.engine.on_closed_candle(candle)
         self.manager.on_candle(candle)
-        if events:
-            self._signals += len(events)
-            for event in events:
-                event.setup.payout = self._payout(event.setup.asset)
-            self.manager.handle(events)
-            self._place_trades(events)
+        self._dispatch(events)
+
+    def _dispatch(self, events) -> None:
+        if not events:
+            return
+        self._signals += len(events)
+        for event in events:
+            event.setup.payout = self._payout(event.setup.asset)
+        self.manager.handle(events)
+        self._place_trades(events)
 
     def _place_trades(self, events) -> None:
         """Fire an order per executed setup without blocking the tick stream.

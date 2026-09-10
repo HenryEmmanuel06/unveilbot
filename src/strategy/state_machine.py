@@ -63,6 +63,9 @@ class SetupStateMachine:
         #: Set by `SignalEngine.set_partial_source` when live partial candles
         #: are available; None means the flat-candle gate is skipped.
         self.flat_guard = None
+        #: `partial_source(asset, timeframe) -> Candle | None`. Needed for the
+        #: intrabar entry trigger; None falls back to closed-candle execution.
+        self.partial_source = None
         self.active: Setup | None = None
         self._tracker: PullbackTracker | None = None
         self._detector = SwingDetector()
@@ -340,33 +343,121 @@ class SetupStateMachine:
             if flat is not None and not flat.allowed:
                 return [self._invalidate(setup, candle, flat.reason)]
 
-            setup.entry_confirmation_time = candle.timestamp
             # The trigger is read from the (Heikin Ashi) signal candle, but the
             # price reported and later scored must be a real market price.
-            setup.entry_price = candle.close if self._ha_enabled else result.entry_price
-            setup.status = SetupStatus.EXECUTED
-            setup.state = SetupState.SIGNAL_SENT.value
-            setup.phase = Phase.EXECUTION_SENT
-            setup.set_expiry(candle.timestamp)
-            logger.info(
-                "%s %s %s confirmation - %s",
-                self.asset,
-                self.timeframe,
-                setup.direction.value,
-                setup.setup_id,
-            )
-            self.active = None
-            self._tracker = None
-            return [
-                SignalEvent(
-                    kind=SignalKind.PHASE3_EXECUTION,
-                    setup=setup,
-                    timestamp=candle.timestamp,
-                    detail=result.reason,
-                )
-            ]
+            entry_price = candle.close if self._ha_enabled else result.entry_price
+            return [self._fire_execution(setup, candle.timestamp, entry_price, result.reason)]
 
         return []
+
+    # ------------------------------------------------------- intrabar entry
+    def on_tick(self, price: float, timestamp) -> list[SignalEvent]:
+        """Execute the moment price touches the entry level.
+
+        The confirmation candle is the first opposite-colour candle after a
+        valid pullback. Waiting for it to close costs a whole candle, which is
+        why the entry level is polled on every tick instead. All the execution
+        gates (bias, higher-timeframe flat candle) still have to pass right
+        now; if one of them blocks, nothing is sent and the closed-candle path
+        keeps its usual authority over the setup.
+        """
+        if not STRATEGY_CONFIG["intrabar_execution"]:
+            return []
+        setup = self.active
+        tracker = self._tracker
+        if setup is None or tracker is None or self.data_unreliable:
+            return []
+        if setup.pattern_confirmation_time is None:
+            return []
+
+        state = tracker.state
+        reference_candle = state.reference_candle
+        # Below the minimum length the opposite candle invalidates the setup,
+        # so there is nothing to trigger early.
+        if reference_candle is None or state.count < state.minimum:
+            return []
+
+        forming = self._forming_raw_candle()
+        if forming is None:
+            return []
+
+        is_w = setup.pattern is Pattern.W
+        # The forming candle must currently be the opposite colour, otherwise
+        # it is still a pullback candle and not the confirmation candle.
+        if is_w and not forming.is_green:
+            return []
+        if not is_w and not forming.is_red:
+            return []
+
+        result = (
+            confirm_w_entry(forming, reference_candle)
+            if is_w
+            else confirm_m_entry(forming, reference_candle)
+        )
+        if result.failed:
+            return []
+
+        if STRATEGY_CONFIG["mtf_filter_stage"] == "execution":
+            allowed, biases = self._check_bias(setup)
+            setup.mtf_bias = {k: v.value for k, v in biases.items()}
+            if not allowed:
+                return []
+
+        flat = self._check_flat_candles(setup)
+        if flat is not None and not flat.allowed:
+            return []
+
+        setup.reference_price = result.reference_price
+        setup.touch(timestamp)
+        return [
+            self._fire_execution(
+                setup, timestamp, float(price), f"{result.reason} (intrabar)"
+            )
+        ]
+
+    def _forming_raw_candle(self) -> Candle | None:
+        """The real, unsmoothed candle currently building on this timeframe.
+
+        Intrabar execution must react to the live market price, not to a
+        Heikin-Ashi-smoothed bar that can lag by several ticks and shift the
+        apparent colour of the forming confirmation candle.
+        """
+        if self.partial_source is None:
+            return None
+        partial = self.partial_source(self.asset, self.timeframe)
+        if partial is None:
+            return None
+        # A partial that shares its timestamp with the last closed candle is
+        # the same bar seen twice.
+        if self.candles and partial.timestamp <= self.candles[-1].timestamp:
+            return None
+        return partial
+
+    def _fire_execution(
+        self, setup: Setup, timestamp, entry_price: float, reason: str
+    ) -> SignalEvent:
+        setup.entry_confirmation_time = timestamp
+        setup.entry_price = entry_price
+        setup.status = SetupStatus.EXECUTED
+        setup.state = SetupState.SIGNAL_SENT.value
+        setup.phase = Phase.EXECUTION_SENT
+        setup.set_expiry(timestamp)
+        logger.info(
+            "%s %s %s confirmation - %s (%s)",
+            self.asset,
+            self.timeframe,
+            setup.direction.value,
+            setup.setup_id,
+            reason,
+        )
+        self.active = None
+        self._tracker = None
+        return SignalEvent(
+            kind=SignalKind.PHASE3_EXECUTION,
+            setup=setup,
+            timestamp=timestamp,
+            detail=reason,
+        )
 
     # --------------------------------------------------------------- helpers
     def _check_bias(self, setup: Setup):

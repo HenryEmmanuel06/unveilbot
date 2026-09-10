@@ -75,6 +75,8 @@ class Settings:
     notify_phase1: bool
     notify_phase2: bool
     notify_phase3: bool
+    #: Option expiration durations per analysis timeframe, e.g. {"5m": "10m"}.
+    expirations: dict[str, str]
     #: Stake per trade as a percentage of the currently available balance.
     trade_percentage: float
     #: Broker minimum stake. A trade sized below this is skipped, not rounded up.
@@ -144,6 +146,14 @@ def load_settings() -> Settings:
     if not database_path.is_absolute():
         database_path = PROJECT_ROOT / database_path
 
+    expirations = {
+        "15s": _env("15S_EXPIRATION", default="1m").lower(),
+        "30s": _env("30S_EXPIRATION", default="1m").lower(),
+        "1m": _env("1M_EXPIRATION", default="3m").lower(),
+        "5m": _env("5M_EXPIRATION", default="10m").lower(),
+        "15m": _env("15M_EXPIRATION", default="30m").lower(),
+    }
+
     return Settings(
         telegram_bot_token=_env("TELEGRAM_BOT_TOKEN", "BOT_TOKEN"),
         telegram_chat_id=normalize_chat_id(_env("TELEGRAM_CHAT_ID", "CHAT_ID")),
@@ -157,6 +167,7 @@ def load_settings() -> Settings:
         notify_phase1=_env_bool("PHASE_1_SIGNAL", True),
         notify_phase2=_env_bool("PHASE_2_SIGNAL", True),
         notify_phase3=_env_bool("PHASE_3_SIGNAL", True),
+        expirations=expirations,
         trade_percentage=_env_float("TRADE_PERCENTAGE", 5.0),
         min_trade_amount=_env_float("MIN_TRADE_AMOUNT", 1.0),
         database_path=database_path,
